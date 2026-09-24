@@ -118,6 +118,30 @@ def feed():
         where_clause = "WHERE p.user_id IN (SELECT followed_id FROM follows WHERE follower_id = ?)"
         params.append(current_user_id)
 
+    # Priority ordering for posts made by followed person and have yet no reactions from the user
+    priority_order = ""
+    priority_params = []
+    if current_user_id:
+        priority_order = """
+            CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM follows f
+                    WHERE f.follower_id = ? AND f.followed_id = p.user_id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM comments c
+                    WHERE c.post_id = p.id AND c.user_id = ?
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM reactions ur
+                    WHERE ur.post_id = p.id AND ur.user_id = ?
+                )
+                THEN 0
+                ELSE 1
+            END,
+        """
+        priority_params = [current_user_id] * 3
+
     # Add the pagination parameters to the query arguments
     pagination_params = (POSTS_PER_PAGE, offset)
 
@@ -139,15 +163,26 @@ def feed():
     elif sort == 'recommended':
         posts = recommend(current_user_id, show == 'following' and current_user_id)
     else:  # Default sort is 'new'
-        query = f"""
-            SELECT p.id, p.content, p.created_at, u.username, u.id as user_id
-            FROM posts p
-            JOIN users u ON p.user_id = u.id
-            {where_clause}
-            ORDER BY p.created_at DESC
-            LIMIT ? OFFSET ?
-        """
-        final_params = params + list(pagination_params)
+        if current_user_id:
+            query = f"""
+                SELECT p.id, p.content, p.created_at, u.username, u.id as user_id
+                FROM posts p
+                JOIN users u ON p.user_id = u.id
+                {where_clause}
+                ORDER BY {priority_order} p.created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            final_params = params + priority_params + list(pagination_params)
+        else:
+            query = f"""
+                SELECT p.id, p.content, p.created_at, u.username, u.id as user_id
+                FROM posts p
+                JOIN users u ON p.user_id = u.id
+                {where_clause}
+                ORDER BY p.created_at DESC
+                LIMIT ? OFFSET ?
+            """
+            final_params = params + list(pagination_params)
         posts = query_db(query, final_params)
 
     posts_data = []
