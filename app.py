@@ -323,6 +323,47 @@ def user_profile(username):
         post['content'] = moderated_post_content
         posts.append(post)
 
+    # Select all this users posts form past seven days, 
+    # count how many posts are there, 
+    # count how many comments do the posts have, do not include the reactions of this user
+    # count how many reactions the posts have, do not include the reactions of this user
+    posts_count_past_7_days = 0
+    comments_count_past_7_days = 0
+    reactions_count_past_7_days = 0
+
+    posts_past_7_days = query_db('SELECT id FROM posts WHERE user_id = ? AND created_at >= datetime("now", "-7 days")', (user['id'],))
+    posts_count_past_7_days = len(posts_past_7_days)
+    for post in posts_past_7_days:
+        post_id = post['id']
+        comments_count_past_7_days += query_db('SELECT COUNT(*) as cnt FROM comments WHERE post_id = ? and user_id != ?', (post_id, user['id']), one=True)['cnt']
+        reactions_count_past_7_days += query_db('SELECT COUNT(*) as cnt FROM reactions WHERE post_id = ? and user_id != ?', (post_id, user['id']), one=True)['cnt']
+
+    # Pass these counts to the template
+    posts_count_past_7_days = posts_count_past_7_days
+    comments_count_past_7_days = comments_count_past_7_days
+    reactions_count_past_7_days = reactions_count_past_7_days
+
+    contribution_score_past_7_days = (comments_count_past_7_days + reactions_count_past_7_days)/max(posts_count_past_7_days, 1)
+
+    average_contribution_score_past_7_days = 0
+    all_users_who_have_posts_past_7_days = query_db('SELECT DISTINCT user_id FROM posts WHERE created_at >= datetime("now", "-7 days")')
+    users_avg_contribution_array = []
+    if all_users_who_have_posts_past_7_days:
+        for user_1 in all_users_who_have_posts_past_7_days:
+            user_id = user_1['user_id']
+            users_all_posts_past_7_days = query_db('SELECT id FROM posts WHERE user_id = ? AND created_at >= datetime("now", "-7 days")', (user_id,))
+            total_contribution_score = 0
+            for post in users_all_posts_past_7_days:
+                post_id = post['id']
+                comments_count = query_db('SELECT COUNT(*) as cnt FROM comments WHERE post_id = ?', (post_id,), one=True)['cnt']
+                reactions_count = query_db('SELECT COUNT(*) as cnt FROM reactions WHERE post_id = ?', (post_id,), one=True)['cnt']
+                total_contribution_score += (comments_count + reactions_count)
+            users_avg_contribution_array.append(total_contribution_score)
+        
+    average_contribution_score_past_7_days = sum(users_avg_contribution_array) / max(len(all_users_who_have_posts_past_7_days), 1)
+    print(average_contribution_score_past_7_days)
+    print(users_avg_contribution_array)
+
     comments_raw = query_db('SELECT id, content, user_id, post_id, created_at FROM comments WHERE user_id = ? ORDER BY created_at DESC LIMIT 100', (user['id'],))
     comments = []
     for comment_raw in comments_raw:
@@ -355,7 +396,12 @@ def user_profile(username):
                            comments=comments,
                            followers_count=followers_count, 
                            following_count=following_count,
-                           is_following=is_currently_following)
+                           is_following=is_currently_following,
+                           posts_count_past_7_days=posts_count_past_7_days,
+                           comments_count_past_7_days=comments_count_past_7_days,
+                           reactions_count_past_7_days=reactions_count_past_7_days,
+                           contribution_score_past_7_days=contribution_score_past_7_days,
+                           average_contribution_score_past_7_days=average_contribution_score_past_7_days)
     
 
 @app.route('/u/<username>/followers')
