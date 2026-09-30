@@ -13,7 +13,7 @@
       <h5 class="card-title">Create a new post</h5>
       <form action="{{ url_for('add_post') }}" method="POST">
         <div class="mb-3">
-          <textarea class="form-control" name="content" rows="3" placeholder="What's on your mind, {{ session.get('username') }}?" required></textarea>
+          <textarea class="form-control" name="content" rows="3" placeholder="{{ place_holder_text }} {{ session.get('username') }}?" required></textarea>
         </div>
         <button type="submit" class="btn btn-primary float-end">Post</button>
       </form>

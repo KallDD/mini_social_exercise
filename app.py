@@ -210,7 +210,7 @@ def feed():
                 user_reaction = reaction_check['reaction_type']
 
         reactions = query_db('SELECT reaction_type, COUNT(*) as count FROM reactions WHERE post_id = ? GROUP BY reaction_type', (post['id'],))
-        comments_raw = query_db('SELECT c.id, c.content, c.created_at, u.username, u.id as user_id FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC', (post['id'],))
+        comments_raw = query_db('SELECT c.id, c.content, c.created_at, c.reply_to_comment_id, u.username, u.id as user_id FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC', (post['id'],))
         post_dict = dict(post)
         post_dict['content'], _ = moderate_content(post_dict['content'])
         comments_moderated = []
@@ -225,6 +225,14 @@ def feed():
             'followed_poster': followed_poster,
             'comments': comments_moderated
         })
+    has_user_posted_today = query_db(
+        'SELECT 1 FROM posts WHERE user_id = ? AND DATE(created_at) = DATE("now")',
+        (current_user_id,),
+        one=True
+    ) is not None
+    place_holder_text = "What's on your mind,"
+    if not has_user_posted_today:
+        place_holder_text = "You haven't posted today. What's on your mind,"
 
     #  4. Render Template with Pagination Info 
     return render_template('feed.html.j2', 
@@ -234,7 +242,8 @@ def feed():
                            page=page, # Pass current page number
                            per_page=POSTS_PER_PAGE, # Pass items per page
                            reaction_emojis=REACTION_EMOJIS,
-                           reaction_types=REACTION_TYPES)
+                           reaction_types=REACTION_TYPES,
+                           place_holder_text=place_holder_text)
 
 @app.route('/posts/new', methods=['POST'])
 def add_post():
@@ -461,7 +470,7 @@ def post_detail(post_id):
     ''', (post_id,))
 
     #  Fetch and Moderate Comments 
-    comments_raw = query_db('SELECT c.id, c.content, c.created_at, u.username, u.id as user_id FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? ORDER BY c.created_at ASC', (post_id,))
+    comments_raw = query_db('SELECT c.id, c.content, c.created_at, u.username, u.id as user_id FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? AND c.reply_to_comment_id IS NULL ORDER BY c.created_at ASC', (post_id,))
     
     comments = [] # Create a new list for the moderated comments
     for comment_raw in comments_raw:
@@ -472,13 +481,22 @@ def post_detail(post_id):
         comment['content'] = moderated_comment_content
         comments.append(comment)
 
+    replys_raw = query_db('SELECT c.id, c.content, c.created_at, u.username, u.id as user_id, c.reply_to_comment_id FROM comments c JOIN users u ON c.user_id = u.id WHERE c.post_id = ? AND c.reply_to_comment_id IS NOT NULL ORDER BY c.created_at ASC', (post_id,))
+    replys = []
+    for reply_raw in replys_raw:
+        reply = dict(reply_raw)
+        moderated_reply_content, _ = moderate_content(reply['content'])
+        reply['content'] = moderated_reply_content
+        replys.append(reply)
+
     # Pass the moderated data to the template
     return render_template('post_detail.html.j2',
                            post=post,
                            reactions=reactions,
                            comments=comments,
                            reaction_emojis=REACTION_EMOJIS,
-                           reaction_types=REACTION_TYPES)
+                           reaction_types=REACTION_TYPES,
+                           replys=replys)
 
 @app.route('/about')
 def about():
@@ -572,14 +590,34 @@ def add_comment(post_id):
 
     # Get content from the submitted form
     content = request.form.get('content')
+    reply_to_comment_id = request.form.get('reply_to_comment_id', '').strip()
+    parent_comment_id = None
+
+    if reply_to_comment_id:
+        try:
+            parent_comment_id = int(reply_to_comment_id)
+        except ValueError:
+            flash('Invalid comment to reply to.', 'warning')
+            return redirect(request.referrer or url_for('post_detail', post_id=post_id))
+
+        parent_comment = query_db(
+            'SELECT id FROM comments WHERE id = ? AND post_id = ?',
+            (parent_comment_id, post_id),
+            one=True
+        )
+        if not parent_comment:
+            flash('The comment you are replying to does not exist.', 'warning')
+            return redirect(request.referrer or url_for('post_detail', post_id=post_id))
 
     # Basic validation to ensure comment is not empty
     if content and content.strip():
         db = get_db()
-        db.execute('INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)',
-                   (post_id, user_id, content))
+        db.execute('''
+            INSERT INTO comments (post_id, user_id, content, reply_to_comment_id)
+            VALUES (?, ?, ?, ?)
+        ''', (post_id, user_id, content, parent_comment_id))
         db.commit()
-        flash('Your comment was added.', 'success')
+        flash('Your reply was added.' if parent_comment_id else 'Your comment was added.', 'success')
     else:
         flash('Comment cannot be empty.', 'warning')
 
