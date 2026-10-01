@@ -1025,10 +1025,42 @@ def moderate_content(content):
             password: admin
     Then, navigate to the /admin endpoint. (http://localhost:8080/admin)
     """
-
     moderated_content = content
-    score = 0
+    if moderated_content is None:
+        moderated_content = ""
     
+    for word in TIER1_WORDS:
+        pattern = rf'\b{re.escape(word)}\b'
+        if re.search(pattern, moderated_content, re.IGNORECASE):
+            score = 5.0
+            return "[content removed due to severe violation]", score
+        
+    for phrase in TIER2_PHRASES:
+        pattern = rf'\b{re.escape(phrase)}\b'
+        if re.search(pattern, moderated_content, re.IGNORECASE):
+            score = 5.0
+            return "[content removed due to spam/scam policy]", score
+
+    score = 0.0
+    for word in TIER3_WORDS:
+        pattern = rf'\b{re.escape(word)}\b'
+        if re.search(pattern, moderated_content, re.IGNORECASE):
+            count = len(re.findall(pattern, moderated_content, re.IGNORECASE))
+            moderated_content = re.sub(pattern, "*" * len(word), moderated_content, flags=re.IGNORECASE)
+            score += 2 * count
+
+    URL_PATTERN = r'https?://\S+|www\.\S+'
+    if re.search(URL_PATTERN, moderated_content):
+        count = len(re.findall(URL_PATTERN, moderated_content))
+        score += 2 * count
+        moderated_content = re.sub(URL_PATTERN, "[link removed]", moderated_content)
+
+    count_capitals = sum(1 for c in moderated_content if c.isupper())
+    count_letters = sum(1 for c in moderated_content if c.isalpha())
+
+    if count_letters > 15 and count_capitals / len(moderated_content) > 0.7:
+        score += 0.5
+
     return moderated_content, score
 
 # Coding Assignment #3
