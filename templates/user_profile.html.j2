@@ -52,13 +52,14 @@
         </div>
       </div>
     </div>
-    <div class="card mx-auto">
-      <div class=" user-performance m-4 flex-grow-1" >
+    <div class="card mx-auto {% if contribution_score_past_7_days >= contribution_goal %}border border-success border-2{% endif %}">
+      <div class=" user-performance m-4 flex-grow-1 " >
                 <p>Last 7 days</p>
                 <p><strong>Posts made:</strong> {{ posts_count_past_7_days }}</p>
                 <p><strong>Comments received:</strong> {{ comments_count_past_7_days }}</p>
                 <p><strong>Reactions received:</strong> {{ reactions_count_past_7_days }}</p>
                 <p><strong>Contribution Score:</strong> {{ contribution_score_past_7_days }}</p>
+                <p><strong>Contribution Goal for the next {{ 7 - goal_age.age|default(0) }} days:</strong> {{ contribution_goal }}</p>
                 <p><strong>All Users Average Contribution Score:</strong> {{ average_contribution_score_past_7_days }}</p>
       </div>
     </div>

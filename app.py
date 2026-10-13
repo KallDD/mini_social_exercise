@@ -385,6 +385,18 @@ def user_profile(username):
     followers_count = query_db('SELECT COUNT(*) as cnt FROM follows WHERE followed_id = ?', (user['id'],), one=True)['cnt']
     following_count = query_db('SELECT COUNT(*) as cnt FROM follows WHERE follower_id = ?', (user['id'],), one=True)['cnt']
 
+    # Retrive and calculate the contribution goal for the user
+    contribution_goal = query_db('SELECT goal FROM user_goals WHERE user_id = ?', (user['id'],), one=True)
+    goal_age = query_db('SELECT julianday("now") - julianday(created_at) as age FROM user_goals WHERE user_id = ?', (user['id'],), one=True)
+    # If no goal is set calculate a default based on the past 7 days contribution score and add 5 and add it to the user_goals table
+    if not contribution_goal:
+        contribution_goal = {'goal': contribution_score_past_7_days + 5}
+        query_db('INSERT INTO user_goals (user_id, goal, created_at) VALUES (?, ?, datetime("now"))', (user['id'], contribution_goal['goal']))
+    elif (goal_age and goal_age['age'] > 7):
+        contribution_goal['goal'] = contribution_score_past_7_days + 5
+        query_db('UPDATE user_goals SET goal = ?, created_at = datetime("now") WHERE user_id = ?', (contribution_goal['goal'], user['id']))
+    
+    
     #  NEW: CHECK FOLLOW STATUS 
     is_currently_following = False # Default to False
     current_user_id = session.get('user_id')
@@ -410,8 +422,10 @@ def user_profile(username):
                            posts_count_past_7_days=posts_count_past_7_days,
                            comments_count_past_7_days=comments_count_past_7_days,
                            reactions_count_past_7_days=reactions_count_past_7_days,
-                           contribution_score_past_7_days=contribution_score_past_7_days,
-                           average_contribution_score_past_7_days=average_contribution_score_past_7_days)
+                           contribution_score_past_7_days=round(contribution_score_past_7_days, 1),
+                           average_contribution_score_past_7_days=round(average_contribution_score_past_7_days, 1),
+                           contribution_goal=round(contribution_goal['goal'], 1),
+                           goal_age=round(goal_age['age'], 1))
     
 
 @app.route('/u/<username>/followers')
