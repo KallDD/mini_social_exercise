@@ -11,7 +11,7 @@
   <div class="card shadow-sm">
     <div class="card-body">
       <h5 class="card-title">Create a new post</h5>
-      <form action="{{ url_for('add_post') }}" method="POST">
+      <form class="content-policy-form" action="{{ url_for('add_post') }}" method="POST">
         <div class="mb-3">
           <textarea class="form-control" name="content" rows="3" placeholder="{{ place_holder_text }} {{ session.get('username') }}?" required></textarea>
         </div>
@@ -172,7 +172,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
-          <form action="/posts/{{ entry.post.id }}/comment" method="POST">
+          <form class="content-policy-form" action="/posts/{{ entry.post.id }}/comment" method="POST">
             <div class="mb-3">
               <label for="comment-content-{{ entry.post.id }}" class="form-label">Your Comment</label>
               <textarea class="form-control" id="comment-content-{{ entry.post.id }}" name="content" rows="3" required></textarea>

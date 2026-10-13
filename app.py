@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g
+from click import confirm
+from flask import Flask, jsonify, render_template, request, redirect, url_for, session, flash, g
 from werkzeug.security import generate_password_hash, check_password_hash
 from cryptography.fernet import Fernet
 import collections
@@ -364,10 +365,10 @@ def user_profile(username):
             total_contribution_score = 0
             for post in users_all_posts_past_7_days:
                 post_id = post['id']
-                comments_count = query_db('SELECT COUNT(*) as cnt FROM comments WHERE post_id = ?', (post_id,), one=True)['cnt']
-                reactions_count = query_db('SELECT COUNT(*) as cnt FROM reactions WHERE post_id = ?', (post_id,), one=True)['cnt']
+                comments_count = query_db('SELECT COUNT(*) as cnt FROM comments WHERE post_id = ? AND user_id != ?', (post_id, user_id), one=True)['cnt']
+                reactions_count = query_db('SELECT COUNT(*) as cnt FROM reactions WHERE post_id = ? AND user_id != ?', (post_id, user_id), one=True)['cnt']
                 total_contribution_score += (comments_count + reactions_count)
-            users_avg_contribution_array.append(total_contribution_score)
+            users_avg_contribution_array.append(total_contribution_score / max(len(users_all_posts_past_7_days), 1))
         
     average_contribution_score_past_7_days = sum(users_avg_contribution_array) / max(len(all_users_who_have_posts_past_7_days), 1)
     print(average_contribution_score_past_7_days)
@@ -975,6 +976,14 @@ def admin_delete_comment(comment_id):
 def rules():
     return render_template('rules.html.j2')
 
+# Content policy reminder endpoint
+@app.route('/content_policy_reminder', methods=['POST'])
+def content_policy_reminder():
+    content = request.form.get('content')
+    score = moderate_content(content)[1]
+    # Return the moderation score along with the content
+    return jsonify({'score': score, 'content': content})
+
 @app.template_global()
 def loop_color(user_id):
     # Generate a pastel color based on user_id hash
@@ -983,7 +992,6 @@ def loop_color(user_id):
     g = int(h[2:4], 16)
     b = int(h[4:6], 16)
     return f'rgb({r % 128 + 80}, {g % 128 + 80}, {b % 128 + 80})'
-
 
 # ----- Functions to be implemented are below
 # Coding Assignment #2
@@ -1002,10 +1010,47 @@ def user_risk_analysis(user_id):
             password: admin
         Then, navigate to the /admin endpoint. (http://localhost:8080/admin)
     """
-    
-    score = 0
+    user_risk_score = 0.0
+    profile_score = 0.0
+    post_score = 0.0
+    comment_score = 0.0
+    content_risk_score = 0.0
 
-    return score;
+    row = query_db('SELECT profile FROM users WHERE id = ?', (user_id,), one=True)
+    profile_score = moderate_content(row['profile'])[1]
+
+    user_posts = query_db('SELECT content FROM posts WHERE user_id = ?', (user_id,))
+    if user_posts:
+        for posts in user_posts:
+            post_score += moderate_content(posts['content'])[1]
+
+        if len(user_posts) > 0:
+            post_score = post_score / len(user_posts)
+
+    user_comments = query_db('SELECT content FROM comments WHERE user_id = ?', (user_id,))
+    if user_comments:
+        for comment in user_comments:
+            comment_score += moderate_content(comment['content'])[1]
+
+        if len(user_comments) > 0:
+            comment_score = comment_score / len(user_comments)
+
+    content_risk_score = (profile_score * 1) + (post_score * 3) + (comment_score * 1)
+
+    row = query_db('SELECT julianday("now") - julianday(created_at) AS age FROM users WHERE id = ?', (user_id,), one=True)
+    account_age = int(row['age']) if row and row['age'] is not None else 0
+
+    if account_age < 7:
+        user_risk_score = content_risk_score * 1.5
+    elif account_age < 30:
+        user_risk_score = content_risk_score * 1.2
+    else:
+        user_risk_score = content_risk_score
+
+    if user_risk_score > 5.0:
+        user_risk_score = 5.0
+    
+    return user_risk_score;
 
     
 # Assignment 2.1
