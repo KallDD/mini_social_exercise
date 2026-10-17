@@ -386,15 +386,23 @@ def user_profile(username):
     following_count = query_db('SELECT COUNT(*) as cnt FROM follows WHERE follower_id = ?', (user['id'],), one=True)['cnt']
 
     # Retrive and calculate the contribution goal for the user
-    contribution_goal = query_db('SELECT goal FROM user_goals WHERE user_id = ?', (user['id'],), one=True)
-    goal_age = query_db('SELECT julianday("now") - julianday(created_at) as age FROM user_goals WHERE user_id = ?', (user['id'],), one=True)
-    # If no goal is set calculate a default based on the past 7 days contribution score and add 5 and add it to the user_goals table
+    contribution_goal = query_db(
+        'SELECT id, goal, created_at FROM user_goals WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', 
+        (user['id'],), 
+        one=True
+    )
     if not contribution_goal:
         contribution_goal = {'goal': contribution_score_past_7_days + 5}
         query_db('INSERT INTO user_goals (user_id, goal, created_at) VALUES (?, ?, datetime("now"))', (user['id'], contribution_goal['goal']))
-    elif (goal_age and goal_age['age'] > 7):
-        contribution_goal['goal'] = contribution_score_past_7_days + 5
+        goal_age = {'age': 0}
+    else:
+        goal_age = query_db('SELECT julianday("now") - julianday(created_at) as age FROM user_goals WHERE id = ?', (contribution_goal['id'],), one=True)
+        # If no goal is set calculate a default based on the past 7 days contribution score and add 5 and add it to the user_goals table
+    
+    if (goal_age and goal_age['age'] > 7):
+        contribution_goal = {'goal': contribution_score_past_7_days + 5}
         query_db('UPDATE user_goals SET goal = ?, created_at = datetime("now") WHERE user_id = ?', (contribution_goal['goal'], user['id']))
+        goal_age = {'age': 0}
     
     
     #  NEW: CHECK FOLLOW STATUS 
@@ -425,7 +433,8 @@ def user_profile(username):
                            contribution_score_past_7_days=round(contribution_score_past_7_days, 1),
                            average_contribution_score_past_7_days=round(average_contribution_score_past_7_days, 1),
                            contribution_goal=round(contribution_goal['goal'], 1),
-                           goal_age=round(goal_age['age'], 1))
+                           goal_age= int(round((7 - goal_age['age']), 0))
+                        )
     
 
 @app.route('/u/<username>/followers')
@@ -1150,4 +1159,3 @@ def recommend(user_id, filter_following):
 
 if __name__ == '__main__':
     app.run(debug=True, port=8080)
-

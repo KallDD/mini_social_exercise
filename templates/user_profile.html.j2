@@ -59,7 +59,7 @@
                 <p><strong>Comments received:</strong> {{ comments_count_past_7_days }}</p>
                 <p><strong>Reactions received:</strong> {{ reactions_count_past_7_days }}</p>
                 <p><strong>Contribution Score:</strong> {{ contribution_score_past_7_days }}</p>
-                <p><strong>Contribution Goal for the next {{ 7 - goal_age.age|default(0) }} days:</strong> {{ contribution_goal }}</p>
+                <p><strong>Contribution Goal for the next {{ goal_age }} days:</strong> {{ contribution_goal }}</p>
                 <p><strong>All Users Average Contribution Score:</strong> {{ average_contribution_score_past_7_days }}</p>
       </div>
     </div>
