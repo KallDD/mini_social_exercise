@@ -533,6 +533,7 @@ def privacy():
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
+    inviter_id = request.args.get('u', type=int)
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -546,8 +547,8 @@ def signup():
         cur = db.cursor()
         try:
             cur.execute(
-                'INSERT INTO users (username, password, location, birthdate, profile) VALUES (?, ?, ?, ?, ?)',
-                (username, hashed_password, location, birthdate, profile)
+                'INSERT INTO users (username, password, location, birthdate, profile, inviter) VALUES (?, ?, ?, ?, ?, ?)',
+                (username, hashed_password, location, birthdate, profile, inviter_id)
             )
             db.commit()
 
