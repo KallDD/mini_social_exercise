@@ -1142,7 +1142,11 @@ def recommend(user_id, filter_following):
     Returns:
         A list of 5 recommended posts, in reverse-chronological order.
 
-    To test whether your recommendation algorithm works, let's pretend we like the DIY topic. Here are some users that often post DIY comment and a few example posts. Make sure your account did not engage with anything else. You should test your algorithm with these and see if your recommendation algorithm picks up on your interest in DIY and starts showing related content.
+    To test whether your recommendation algorithm works, let's pretend we like the DIY topic. 
+    Here are some users that often post DIY comment and a few example posts. 
+    Make sure your account did not engage with anything else. 
+    You should test your algorithm with these and see if your recommendation algorithm picks up on your interest in 
+    DIY and starts showing related content.
     
     Users: @starboy99, @DancingDolphin, @blogger_bob
     Posts: 1810, 1875, 1880, 2113
@@ -1153,9 +1157,105 @@ def recommend(user_id, filter_following):
     - https://www.researchgate.net/publication/227268858_Recommender_Systems_Handbook
     """
 
-    recommended_posts = {} 
+    STOP_WORDS = {
+        'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and',
+        'any', 'are', 'aren', 'as', 'at', 'be', 'because', 'been', 'before', 'being',
+        'below', 'between', 'both', 'but', 'by', 'can', 'cant', 'could', 'did', 'do',
+        'does', 'doing', 'down', 'during', 'each', 'few', 'for', 'from', 'further',
+        'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers', 'him', 'his',
+        'how', 'i', 'if', 'in', 'into', 'is', 'it', 'its', 'just', 'me', 'more',
+        'most', 'my', 'no', 'nor', 'not', 'of', 'off', 'on', 'once', 'only', 'or',
+        'other', 'our', 'out', 'over', 'own', 'same', 'she', 'should', 'so', 'some',
+        'such', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these',
+        'they', 'this', 'those', 'through', 'to', 'too', 'under', 'until', 'up',
+        'very', 'was', 'we', 'were', 'what', 'when', 'where', 'which', 'while',
+        'who', 'whom', 'why', 'with', 'you', 'your', 's'
+    }
 
-    return recommended_posts;
+    if filter_following:
+            following_users = query_db('SELECT followed_id FROM follows WHERE follower_id = ?', (user_id,))
+            following_users = [user['followed_id'] for user in following_users]
+            if not following_users:
+                        return []
+
+    if filter_following:
+        query = 'SELECT post_id FROM comments WHERE user_id IN ({})'.format(','.join('?' for _ in following_users))
+        commented_posts = query_db(query, tuple(following_users))
+
+        query = 'SELECT post_id FROM reactions WHERE user_id IN ({})'.format(','.join('?' for _ in following_users))
+        reacted_posts = query_db(query, tuple(following_users))
+    else:
+        commented_posts = query_db('SELECT post_id FROM comments WHERE user_id = ? ORDER BY created_at DESC LIMIT 10', (user_id,))
+        reacted_posts = query_db('SELECT post_id FROM reactions WHERE user_id = ? ORDER BY id DESC LIMIT 10', (user_id,))
+
+    if not commented_posts and not reacted_posts:
+        return []
+
+    engaged_posts = [post['post_id'] for post in commented_posts + reacted_posts]
+
+    relevant_words_score = []
+
+
+    try:
+        for post in commented_posts:
+            post_content = query_db('SELECT content FROM posts WHERE id = ?', (post['post_id'],), one=True)
+            if post_content:
+                post_content = post_content['content'].lower()
+                words = re.findall(r'\b\w+\b', post_content)
+                for word in words:
+                    if word in STOP_WORDS:
+                        continue
+                    elif word in [w for count, w in relevant_words_score]:
+                        relevant_words_score = [(count + 1, w) if w == word else (count, w) for count, w in relevant_words_score]
+                    else:
+                        relevant_words_score.append((1, word))
+  
+    except Exception as e:
+        print(f"Error processing commented posts: {e}")
+
+    try:
+        for post in reacted_posts:
+            post_content = query_db('SELECT content FROM posts WHERE id = ?', (post['post_id'],), one=True)
+            if post_content:
+                post_content = post_content['content'].lower()
+                words = re.findall(r'\b\w+\b', post_content)
+                for word in words:
+                    if word in STOP_WORDS:
+                        continue
+                    elif word in [w for count, w in relevant_words_score]:
+                        relevant_words_score = [(count + 1, w) if w == word else (count, w) for count, w in relevant_words_score]
+                    else:
+                        relevant_words_score.append((1, word))
+                  
+    except Exception as e:
+        print(f"Error processing reacted posts: {e}")
+
+    
+
+
+    # Make priority list of hashtags based on their count
+    # relevant_hashtags_score.sort(reverse=True, key=lambda x: x[0])
+    # relevant_hashtags = [tag for count, tag in relevant_hashtags_score]
+    #
+    relevant_hashtags = []
+
+    relevant_words_score.sort(reverse=True, key=lambda x: x[0])
+    relevant_words = [word for count, word in relevant_words_score]
+    relevant_words = relevant_words[:3]  # Limit to top 5 relevant words
+
+    #print(f"Sorted relevant words: {relevant_words}")
+
+    # Query posts that contain any of the key words in their content
+    if relevant_words and filter_following:
+        query = f'SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id NOT IN ({",".join(["?" for _ in engaged_posts] )}) AND p.user_id IN ({",".join(["?" for _ in following_users] )}) AND ({" OR ".join([f"p.content LIKE ?" for _ in relevant_words])}) ORDER BY p.created_at DESC LIMIT 5'
+        recommended_posts = query_db(query, tuple(engaged_posts) + tuple(following_users) + tuple(f'%{kw}%' for kw in relevant_words))
+    elif relevant_words:
+        query = f'SELECT p.*, u.username FROM posts p JOIN users u ON p.user_id = u.id WHERE p.id NOT IN ({",".join(["?" for _ in engaged_posts] )}) AND ({" OR ".join([f"p.content LIKE ?" for _ in relevant_words])}) ORDER BY p.created_at DESC LIMIT 5'
+        recommended_posts = query_db(query, tuple(engaged_posts) + tuple(f'%{kw}%' for kw in relevant_words))
+    else:
+        recommended_posts = []
+
+    return recommended_posts
 
 if __name__ == '__main__':
     app.run(debug=True, port=8080)
