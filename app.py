@@ -7,6 +7,7 @@ import json
 import sqlite3
 import hashlib
 import re
+import uuid
 from datetime import datetime
 
 app = Flask(__name__)
@@ -219,13 +220,22 @@ def feed():
             comment_dict = dict(comment)
             comment_dict['content'], _ = moderate_content(comment_dict['content'])
             comments_moderated.append(comment_dict)
+
+        shares = query_db(
+            'SELECT count() as count FROM shares WHERE post_id = ? AND user_id IS NOT NULL',
+            (post['id'],),
+            one=True
+        )
+
         posts_data.append({
             'post': post_dict,
             'reactions': reactions,
             'user_reaction': user_reaction,
             'followed_poster': followed_poster,
-            'comments': comments_moderated
+            'comments': comments_moderated,
+            'shares': shares['count'] if shares else 0
         })
+
     has_user_posted_today = query_db(
         'SELECT 1 FROM posts WHERE user_id = ? AND DATE(created_at) = DATE("now")',
         (current_user_id,),
@@ -466,7 +476,11 @@ def user_following(username):
 @app.route('/posts/<int:post_id>')
 def post_detail(post_id):
     """Displays a single post and its comments, with content moderation applied."""
-    
+    opened_through_link = request.args.get('guid', type=str)
+    if opened_through_link is not None:
+        # Handle the case where the post was opened through a link with a GUID
+        pass
+
     post_raw = query_db('''
         SELECT p.id, p.content, p.created_at, u.username, u.id as user_id
         FROM posts p
@@ -513,6 +527,12 @@ def post_detail(post_id):
         reply['content'] = moderated_reply_content
         replys.append(reply)
 
+    shares = query_db(
+                'SELECT count() as count FROM shares WHERE post_id = ? AND user_id IS NOT NULL',
+                (post['id'],),
+                one=True
+            )
+
     # Pass the moderated data to the template
     return render_template('post_detail.html.j2',
                            post=post,
@@ -520,7 +540,52 @@ def post_detail(post_id):
                            comments=comments,
                            reaction_emojis=REACTION_EMOJIS,
                            reaction_types=REACTION_TYPES,
-                           replys=replys)
+                           replys=replys,
+                           shares=shares['count'] if shares else 0
+                        )
+
+@app.route('/posts/<int:post_id>/share', methods=['POST'])
+def share_post(post_id):
+    post = query_db(
+        'SELECT id FROM posts WHERE id = ?',
+        (post_id,),
+        one=True
+    )
+
+    if post is None:
+        return jsonify(error='Post not found'), 404
+
+    share = query_db(
+        'SELECT id FROM shares WHERE post_id = ? AND user_id = ?',
+        (post_id, session.get('user_id')),
+        one=True
+    )
+
+    if share is not None:
+        return jsonify(url=url_for(
+            'post_detail',
+            post_id=post_id,
+            l=share['id'],
+            _external=True
+        ))
+
+    share_id = str(uuid.uuid4())
+    user_id = session.get('user_id')
+
+    result = query_db(
+        'INSERT INTO shares (id, post_id, user_id) VALUES (?, ?, ?)',
+        (share_id, post_id, user_id),
+        commit=True
+    )
+    if result is None:
+        return jsonify(error='Could not save share'), 500
+
+    return jsonify(url=url_for(
+        'post_detail',
+        post_id=post_id,
+        l=share_id,
+        _external=True
+    ))
 
 @app.route('/about')
 def about():
@@ -1242,7 +1307,7 @@ def recommend(user_id, filter_following):
 
     relevant_words_score.sort(reverse=True, key=lambda x: x[0])
     relevant_words = [word for count, word in relevant_words_score]
-    relevant_words = relevant_words[:3]  # Limit to top 5 relevant words
+    relevant_words = relevant_words[:3]  # Limit to top 3 relevant words
 
     #print(f"Sorted relevant words: {relevant_words}")
 
